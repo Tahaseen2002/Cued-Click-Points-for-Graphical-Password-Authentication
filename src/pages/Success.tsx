@@ -1,16 +1,21 @@
 import React from 'react';
-import { CheckCircle, LogOut, Home } from 'lucide-react';
+import { CheckCircle, LogOut, Home, MousePointerClick, Grid3x3 } from 'lucide-react';
 
 interface SuccessProps {
   username: string;
+  authMethod: string;
   onNavigate: (page: 'landing') => void;
   onLogout: () => void;
 }
 
-export const Success: React.FC<SuccessProps> = ({ username, onNavigate, onLogout }) => {
+export const Success: React.FC<SuccessProps> = ({ username, authMethod, onNavigate, onLogout }) => {
   const handleLogout = () => {
     onLogout();
     onNavigate('landing');
+  };
+
+  const getMethodDisplay = () => {
+    return authMethod === 'cued-click-points' ? 'Cued Click Points' : 'Image Sequence';
   };
 
   return (
@@ -28,9 +33,18 @@ export const Success: React.FC<SuccessProps> = ({ username, onNavigate, onLogout
             Authentication Successful!
           </h1>
 
-          <p className="text-2xl text-gray-300 mb-8">
+          <p className="text-2xl text-gray-300 mb-4">
             Welcome back, <span className="font-semibold text-white">{username}</span>
           </p>
+
+          <div className="flex items-center justify-center gap-2 text-sm text-gray-400 mb-8">
+            {authMethod === 'cued-click-points' ? (
+              <MousePointerClick className="w-4 h-4" />
+            ) : (
+              <Grid3x3 className="w-4 h-4" />
+            )}
+            <span>Authenticated via {getMethodDisplay()}</span>
+          </div>
 
           <div className="bg-slate-800 p-8 rounded-lg border border-slate-700 mb-8">
             <h2 className="text-xl font-semibold mb-4">Access Granted</h2>

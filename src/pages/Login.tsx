@@ -1,25 +1,27 @@
 import React, { useState } from 'react';
-import { ArrowLeft, CheckCircle, AlertCircle, XCircle } from 'lucide-react';
-import { ImageClickArea } from '../components/ImageClickArea';
-import { ClickPoint, REQUIRED_POINTS } from '../types/auth';
+import { ArrowLeft, AlertCircle, XCircle } from 'lucide-react';
+import { CuedClickPoints } from '../components/CuedClickPoints';
+import { ImageSequenceAuth } from '../components/ImageSequenceAuth';
+import { ClickPoint, REQUIRED_POINTS, REQUIRED_IMAGES } from '../types/auth';
 import { storageUtils } from '../utils/storage';
 import { validateClickPoints } from '../utils/validation';
+import { validateImageSequence } from '../utils/imageUtils';
+import { useAuth } from '../context/AuthContext';
 
 interface LoginProps {
   onNavigate: (page: 'landing' | 'register' | 'success') => void;
-  onLogin: (username: string) => void;
+  onLogin: (username: string, authMethod: string) => void;
 }
 
-const IMAGES = [
-  'https://images.pexels.com/photos/1271619/pexels-photo-1271619.jpeg?auto=compress&cs=tinysrgb&w=1200',
-];
-
 export const Login: React.FC<LoginProps> = ({ onNavigate, onLogin }) => {
+  const { setAuthMethod } = useAuth();
   const [username, setUsername] = useState('');
   const [clickPoints, setClickPoints] = useState<ClickPoint[]>([]);
-  const [currentStep, setCurrentStep] = useState<'username' | 'points'>('username');
+  const [imageSequence, setImageSequence] = useState<string[]>([]);
+  const [currentStep, setCurrentStep] = useState<'username' | 'auth'>('username');
   const [error, setError] = useState('');
   const [attempts, setAttempts] = useState(0);
+  const [userAuthMethod, setUserAuthMethod] = useState<'cued-click-points' | 'image-sequence'>('cued-click-points');
   const MAX_ATTEMPTS = 3;
 
   const handleUsernameSubmit = (e: React.FormEvent) => {
@@ -31,67 +33,111 @@ export const Login: React.FC<LoginProps> = ({ onNavigate, onLogin }) => {
       return;
     }
 
-    if (!storageUtils.userExists(username)) {
+    const user = storageUtils.getUser(username);
+    if (!user) {
       setError('Username not found');
       return;
     }
 
-    setCurrentStep('points');
+    setUserAuthMethod(user.authMethod);
+    setAuthMethod(user.authMethod);
+    setCurrentStep('auth');
   };
 
-  const handlePointClick = (point: ClickPoint) => {
-    if (clickPoints.length < REQUIRED_POINTS) {
-      setClickPoints([...clickPoints, point]);
-    }
+  const handleClickPointsComplete = (points: ClickPoint[]) => {
+    setClickPoints(points);
+  };
+
+  const handleImageSequenceComplete = (imageIds: string[]) => {
+    setImageSequence(imageIds);
   };
 
   const handleLogin = () => {
-    if (clickPoints.length !== REQUIRED_POINTS) {
-      setError(`Please select exactly ${REQUIRED_POINTS} points`);
-      return;
-    }
-
     const user = storageUtils.getUser(username);
     if (!user) {
       setError('User not found');
       return;
     }
 
-    const isValid = validateClickPoints(clickPoints, user.clickPoints);
+    let isValid = false;
+
+    if (userAuthMethod === 'cued-click-points') {
+      if (clickPoints.length !== REQUIRED_POINTS) {
+        setError(`Please select exactly ${REQUIRED_POINTS} points`);
+        return;
+      }
+
+      if (!user.clickPoints) {
+        setError('Invalid user data');
+        return;
+      }
+
+      isValid = validateClickPoints(clickPoints, user.clickPoints);
+    } else {
+      if (imageSequence.length !== REQUIRED_IMAGES) {
+        setError(`Please select exactly ${REQUIRED_IMAGES} images`);
+        return;
+      }
+
+      if (!user.imageSequence) {
+        setError('Invalid user data');
+        return;
+      }
+
+      const storedSequence = user.imageSequence
+        .sort((a, b) => a.order - b.order)
+        .map((item) => item.imageId);
+
+      isValid = validateImageSequence(imageSequence, storedSequence);
+    }
 
     if (isValid) {
-      onLogin(username);
+      onLogin(username, userAuthMethod);
       onNavigate('success');
     } else {
       const newAttempts = attempts + 1;
       setAttempts(newAttempts);
 
       if (newAttempts >= MAX_ATTEMPTS) {
-        setError(`Authentication failed. Maximum attempts (${MAX_ATTEMPTS}) reached. Please try again later.`);
+        setError(
+          `Authentication failed. Maximum attempts (${MAX_ATTEMPTS}) reached. Please try again later.`
+        );
         setClickPoints([]);
+        setImageSequence([]);
         setTimeout(() => {
           onNavigate('landing');
         }, 3000);
       } else {
-        setError(`Authentication failed. Click points do not match. Attempts remaining: ${MAX_ATTEMPTS - newAttempts}`);
+        const methodName =
+          userAuthMethod === 'cued-click-points' ? 'Click points' : 'Image sequence';
+        setError(
+          `Authentication failed. ${methodName} does not match. Attempts remaining: ${
+            MAX_ATTEMPTS - newAttempts
+          }`
+        );
         setClickPoints([]);
+        setImageSequence([]);
       }
     }
   };
 
-  const handleReset = () => {
-    setClickPoints([]);
-    setError('');
-  };
-
   const handleBack = () => {
-    if (currentStep === 'points') {
+    if (currentStep === 'auth') {
       setCurrentStep('username');
       setClickPoints([]);
+      setImageSequence([]);
       setError('');
       setAttempts(0);
     } else {
       onNavigate('landing');
+    }
+  };
+
+  const isReadyToLogin = () => {
+    if (userAuthMethod === 'cued-click-points') {
+      return clickPoints.length === REQUIRED_POINTS;
+    } else {
+      return imageSequence.length === REQUIRED_IMAGES;
     }
   };
 
@@ -158,27 +204,31 @@ export const Login: React.FC<LoginProps> = ({ onNavigate, onLogin }) => {
             </div>
           )}
 
-          {currentStep === 'points' && (
+          {currentStep === 'auth' && (
             <div>
-              <div className="bg-slate-800 p-8 rounded-lg border border-slate-700 mb-6">
-                <h2 className="text-2xl font-semibold mb-4">Enter Your Graphical Password</h2>
-                <p className="text-gray-400 mb-2">
-                  Click the {REQUIRED_POINTS} points you selected during registration in the correct order.
+              <p className="text-center text-sm text-gray-400 mb-6">
+                Authentication Method:{' '}
+                {userAuthMethod === 'cued-click-points' ? 'Cued Click Points' : 'Image Sequence'}
+              </p>
+              {attempts > 0 && (
+                <p className="text-yellow-400 text-sm mb-6 text-center">
+                  Attempts used: {attempts} / {MAX_ATTEMPTS}
                 </p>
-                {attempts > 0 && (
-                  <p className="text-yellow-400 text-sm mb-6">
-                    Attempts used: {attempts} / {MAX_ATTEMPTS}
-                  </p>
-                )}
+              )}
 
-                <ImageClickArea
-                  imageUrl={IMAGES[0]}
-                  onPointClick={handlePointClick}
-                  clickedPoints={clickPoints}
-                  maxPoints={REQUIRED_POINTS}
-                  showFeedback={false}
-                  imageIndex={0}
-                />
+              <div className="bg-slate-800 p-8 rounded-lg border border-slate-700 mb-6">
+                {userAuthMethod === 'cued-click-points' ? (
+                  <CuedClickPoints
+                    mode="login"
+                    onComplete={handleClickPointsComplete}
+                    showFeedback={false}
+                  />
+                ) : (
+                  <ImageSequenceAuth
+                    mode="login"
+                    onComplete={handleImageSequenceComplete}
+                  />
+                )}
 
                 {error && (
                   <div className="mt-4 p-3 bg-red-900/50 border border-red-700 rounded-lg flex items-start">
@@ -187,34 +237,15 @@ export const Login: React.FC<LoginProps> = ({ onNavigate, onLogin }) => {
                   </div>
                 )}
 
-                <div className="mt-6 flex gap-4">
-                  <button
-                    onClick={handleReset}
-                    className="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-semibold py-3 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    disabled={clickPoints.length === 0 || attempts >= MAX_ATTEMPTS}
-                  >
-                    Reset Points
-                  </button>
+                <div className="mt-6">
                   <button
                     onClick={handleLogin}
-                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    disabled={clickPoints.length !== REQUIRED_POINTS || attempts >= MAX_ATTEMPTS}
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={!isReadyToLogin() || attempts >= MAX_ATTEMPTS}
                   >
                     Login
                   </button>
                 </div>
-              </div>
-
-              <div className="bg-slate-800/50 p-4 rounded-lg border border-slate-700">
-                <h3 className="font-semibold mb-2 flex items-center">
-                  <AlertCircle className="w-4 h-4 mr-2 text-blue-400" />
-                  Authentication Tips
-                </h3>
-                <ul className="text-sm text-gray-400 space-y-1">
-                  <li>• Click points in the same order as during registration</li>
-                  <li>• Clicks must be within the tolerance radius of original points</li>
-                  <li>• Point numbers are hidden for security</li>
-                </ul>
               </div>
             </div>
           )}

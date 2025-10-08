@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { AuthProvider } from './context/AuthContext';
 import { Landing } from './pages/Landing';
 import { Register } from './pages/Register';
 import { Login } from './pages/Login';
@@ -9,9 +10,11 @@ type Page = 'landing' | 'register' | 'login' | 'success';
 function App() {
   const [currentPage, setCurrentPage] = useState<Page>('landing');
   const [authenticatedUser, setAuthenticatedUser] = useState<string | null>(null);
+  const [authMethod, setAuthMethod] = useState<string>('cued-click-points');
 
-  const handleLogin = (username: string) => {
+  const handleLogin = (username: string, method: string) => {
     setAuthenticatedUser(username);
+    setAuthMethod(method);
   };
 
   const handleLogout = () => {
@@ -30,6 +33,7 @@ function App() {
         return authenticatedUser ? (
           <Success
             username={authenticatedUser}
+            authMethod={authMethod}
             onNavigate={setCurrentPage}
             onLogout={handleLogout}
           />
@@ -41,7 +45,11 @@ function App() {
     }
   };
 
-  return <>{renderPage()}</>;
+  return (
+    <AuthProvider>
+      {renderPage()}
+    </AuthProvider>
+  );
 }
 
 export default App;

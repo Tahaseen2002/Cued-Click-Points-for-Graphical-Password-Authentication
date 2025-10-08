@@ -1,21 +1,21 @@
 import React, { useState } from 'react';
 import { ArrowLeft, CheckCircle, AlertCircle } from 'lucide-react';
-import { ImageClickArea } from '../components/ImageClickArea';
-import { ClickPoint, REQUIRED_POINTS } from '../types/auth';
+import { CuedClickPoints } from '../components/CuedClickPoints';
+import { ImageSequenceAuth } from '../components/ImageSequenceAuth';
+import { ClickPoint, REQUIRED_POINTS, REQUIRED_IMAGES } from '../types/auth';
 import { storageUtils } from '../utils/storage';
+import { useAuth } from '../context/AuthContext';
 
 interface RegisterProps {
   onNavigate: (page: 'landing' | 'login' | 'success') => void;
 }
 
-const IMAGES = [
-  'https://images.pexels.com/photos/1271619/pexels-photo-1271619.jpeg?auto=compress&cs=tinysrgb&w=1200',
-];
-
 export const Register: React.FC<RegisterProps> = ({ onNavigate }) => {
+  const { authMethod } = useAuth();
   const [username, setUsername] = useState('');
   const [clickPoints, setClickPoints] = useState<ClickPoint[]>([]);
-  const [currentStep, setCurrentStep] = useState<'username' | 'points'>('username');
+  const [imageSequence, setImageSequence] = useState<string[]>([]);
+  const [currentStep, setCurrentStep] = useState<'username' | 'auth'>('username');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
 
@@ -38,42 +38,76 @@ export const Register: React.FC<RegisterProps> = ({ onNavigate }) => {
       return;
     }
 
-    setCurrentStep('points');
+    setCurrentStep('auth');
   };
 
-  const handlePointClick = (point: ClickPoint) => {
-    if (clickPoints.length < REQUIRED_POINTS) {
-      setClickPoints([...clickPoints, point]);
-    }
+  const handleClickPointsComplete = (points: ClickPoint[]) => {
+    setClickPoints(points);
+  };
+
+  const handleImageSequenceComplete = (imageIds: string[]) => {
+    setImageSequence(imageIds);
   };
 
   const handleRegister = () => {
-    if (clickPoints.length !== REQUIRED_POINTS) {
-      setError(`Please select exactly ${REQUIRED_POINTS} points`);
-      return;
-    }
+    if (authMethod === 'cued-click-points') {
+      if (clickPoints.length !== REQUIRED_POINTS) {
+        setError(`Please select exactly ${REQUIRED_POINTS} points`);
+        return;
+      }
 
-    const user = {
-      username,
-      clickPoints,
-      createdAt: new Date().toISOString(),
-    };
+      const user = {
+        username,
+        authMethod,
+        clickPoints,
+        createdAt: new Date().toISOString(),
+      };
 
-    const saved = storageUtils.saveUser(user);
+      const saved = storageUtils.saveUser(user);
 
-    if (saved) {
-      setSuccess(true);
-      setTimeout(() => {
-        onNavigate('login');
-      }, 2000);
+      if (saved) {
+        setSuccess(true);
+        setTimeout(() => {
+          onNavigate('login');
+        }, 2000);
+      } else {
+        setError('Failed to register. Please try again.');
+      }
     } else {
-      setError('Failed to register. Please try again.');
+      if (imageSequence.length !== REQUIRED_IMAGES) {
+        setError(`Please select exactly ${REQUIRED_IMAGES} images`);
+        return;
+      }
+
+      const user = {
+        username,
+        authMethod,
+        imageSequence: imageSequence.map((id, index) => ({
+          imageId: id,
+          order: index,
+        })),
+        createdAt: new Date().toISOString(),
+      };
+
+      const saved = storageUtils.saveUser(user);
+
+      if (saved) {
+        setSuccess(true);
+        setTimeout(() => {
+          onNavigate('login');
+        }, 2000);
+      } else {
+        setError('Failed to register. Please try again.');
+      }
     }
   };
 
-  const handleReset = () => {
-    setClickPoints([]);
-    setError('');
+  const isReadyToRegister = () => {
+    if (authMethod === 'cued-click-points') {
+      return clickPoints.length === REQUIRED_POINTS;
+    } else {
+      return imageSequence.length === REQUIRED_IMAGES;
+    }
   };
 
   return (
@@ -89,8 +123,12 @@ export const Register: React.FC<RegisterProps> = ({ onNavigate }) => {
 
         <div className="max-w-4xl mx-auto">
           <h1 className="text-4xl font-bold text-center mb-2">Create Account</h1>
-          <p className="text-center text-gray-400 mb-8">
-            Register with a graphical password
+          <p className="text-center text-gray-400 mb-2">
+            Register with{' '}
+            {authMethod === 'cued-click-points' ? 'Cued Click Points' : 'Image Sequence'}
+          </p>
+          <p className="text-center text-sm text-gray-500 mb-8">
+            Authentication Method: {authMethod === 'cued-click-points' ? 'Click Points' : 'Image Sequence'}
           </p>
 
           {currentStep === 'username' && (
@@ -128,22 +166,21 @@ export const Register: React.FC<RegisterProps> = ({ onNavigate }) => {
             </div>
           )}
 
-          {currentStep === 'points' && (
+          {currentStep === 'auth' && (
             <div>
               <div className="bg-slate-800 p-8 rounded-lg border border-slate-700 mb-6">
-                <h2 className="text-2xl font-semibold mb-4">Create Your Graphical Password</h2>
-                <p className="text-gray-400 mb-6">
-                  Click {REQUIRED_POINTS} points on the image below. Remember the sequence and locations - you'll need them to login.
-                </p>
-
-                <ImageClickArea
-                  imageUrl={IMAGES[0]}
-                  onPointClick={handlePointClick}
-                  clickedPoints={clickPoints}
-                  maxPoints={REQUIRED_POINTS}
-                  showFeedback={true}
-                  imageIndex={0}
-                />
+                {authMethod === 'cued-click-points' ? (
+                  <CuedClickPoints
+                    mode="register"
+                    onComplete={handleClickPointsComplete}
+                    showFeedback={true}
+                  />
+                ) : (
+                  <ImageSequenceAuth
+                    mode="register"
+                    onComplete={handleImageSequenceComplete}
+                  />
+                )}
 
                 {error && (
                   <div className="mt-4 p-3 bg-red-900/50 border border-red-700 rounded-lg flex items-start">
@@ -155,38 +192,21 @@ export const Register: React.FC<RegisterProps> = ({ onNavigate }) => {
                 {success && (
                   <div className="mt-4 p-3 bg-green-900/50 border border-green-700 rounded-lg flex items-start">
                     <CheckCircle className="w-5 h-5 text-green-400 mr-2 flex-shrink-0 mt-0.5" />
-                    <span className="text-sm text-green-200">Registration successful! Redirecting to login...</span>
+                    <span className="text-sm text-green-200">
+                      Registration successful! Redirecting to login...
+                    </span>
                   </div>
                 )}
 
-                <div className="mt-6 flex gap-4">
-                  <button
-                    onClick={handleReset}
-                    className="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-semibold py-3 rounded-lg transition-colors"
-                    disabled={clickPoints.length === 0 || success}
-                  >
-                    Reset Points
-                  </button>
+                <div className="mt-6">
                   <button
                     onClick={handleRegister}
-                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    disabled={clickPoints.length !== REQUIRED_POINTS || success}
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={!isReadyToRegister() || success}
                   >
                     Register
                   </button>
                 </div>
-              </div>
-
-              <div className="bg-slate-800/50 p-4 rounded-lg border border-slate-700">
-                <h3 className="font-semibold mb-2 flex items-center">
-                  <AlertCircle className="w-4 h-4 mr-2 text-yellow-400" />
-                  Important Tips
-                </h3>
-                <ul className="text-sm text-gray-400 space-y-1">
-                  <li>• Remember the order and approximate locations of your clicks</li>
-                  <li>• Choose distinctive features or landmarks in the image</li>
-                  <li>• You'll need to click within a small radius of each original point</li>
-                </ul>
               </div>
             </div>
           )}
